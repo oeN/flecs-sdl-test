@@ -10,12 +10,22 @@ typedef struct Vector2 {
   float y;
 } Position2, Size2;
 
+typedef struct SDLContext {
+  SDL_Window *window;
+  SDL_Renderer *renderer;
+} SDLContext;
+
 ecs_world_t *world = NULL;
 
 void move_player(ecs_iter_t *it);
 void draw_player(ecs_iter_t *it);
 void setup_draw(ecs_iter_t *it);
 void render(ecs_iter_t *it);
+void setup_sdl(ecs_iter_t *it);
+void destroy_sdl(ecs_world_t *wold, void *ctx);
+
+ECS_COMPONENT_DECLARE(SDLContext);
+#define SDLContextInst (ecs_id(SDLContext))
 
 void main_loop() {
   int quit = 0;
@@ -34,9 +44,9 @@ void main_loop() {
   }
 }
 
-int run_game(SDL_Window *window) {
-  world = ecs_init();
-  ecs_set_ctx(world, window, NULL);
+int run_game() {
+  // world = ecs_init();
+  ecs_log_set_level(0);
 
   // Set ecs phases to accommodate SDL Draw Functions
   ecs_entity_t BeforeDraw = ecs_new_w_id(world, EcsPhase);
@@ -47,9 +57,12 @@ int run_game(SDL_Window *window) {
   ecs_add_pair(world, OnDraw, EcsDependsOn, BeforeDraw);
   ecs_add_pair(world, AfterDraw, EcsDependsOn, OnDraw);
 
+  ECS_COMPONENT_DEFINE(world, SDLContext);
   ECS_COMPONENT(world, Position2);
   ECS_COMPONENT(world, Size2);
+  ECS_COMPONENT(world, SDLContext);
 
+  ECS_SYSTEM(world, setup_sdl, EcsOnStart, 0);
   ECS_SYSTEM(world, move_player, EcsOnUpdate, Position2);
   ECS_SYSTEM(world, setup_draw, BeforeDraw, 0);
   ECS_SYSTEM(world, draw_player, OnDraw, Position2, Size2);
@@ -59,46 +72,78 @@ int run_game(SDL_Window *window) {
   ecs_set(world, Player, Position2, {100, 100});
   ecs_set(world, Player, Size2, {50, 50});
 
-  printf("Running Game\n");
+  ecs_trace("Running Game\n");
   main_loop();
-  printf("Game Over\n");
+  ecs_trace("Game Over\n");
+
+  ecs_atfini(world, destroy_sdl, NULL);
 
   return ecs_fini(world);
 }
 
-int main(int argc, char *args[]) {
-  SDL_Window *window;
-  // TODO: use the SDL_Renderer instead of SDL_Surface
-  SDL_Surface *screenSurface;
+int main(int argc, char *argv[]) {
+  world = ecs_init_w_args(argc, argv);
+  ECS_IMPORT(world, FlecsStats);
 
-  // TODO: initialize the SDL stuffs in a OnStart system
+  ecs_singleton_set(world, EcsRest, {0});
+
+  run_game();
+
+  return 0;
+}
+
+void setup_sdl(ecs_iter_t *it) {
+  ecs_world_t *world = it->world;
+  ecs_trace("Setting up SDL");
+  SDL_Window *window;
+
   if (SDL_Init(SDL_INIT_VIDEO) < 0) {
-    printf("SDL could not initialize! SDL_Error: %s\n", SDL_GetError());
-    return -1;
+    ecs_err("SDL could not initialize! SDL_Error: %s\n", SDL_GetError());
   }
 
   window = SDL_CreateWindow("Flecs Demo", SDL_WINDOWPOS_UNDEFINED,
                             SDL_WINDOWPOS_UNDEFINED, SCREEN_WIDTH,
                             SCREEN_HEIGHT, SDL_WINDOW_SHOWN);
   if (window == NULL) {
-    printf("Window could not be created! SDL_Error: %s\n", SDL_GetError());
-    return -2;
+    ecs_err("Window could not be created! SDL_Error: %s\n", SDL_GetError());
   }
 
-  run_game(window);
+  SDL_Renderer *renderer =
+      SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+  if (renderer == NULL) {
+    ecs_err("Renderer could not be created! SDL_Error: %s\n", SDL_GetError());
+  }
 
-  SDL_DestroyWindow(window);
+  ecs_trace("Context ready");
+  ecs_set(world, SDLContextInst, SDLContext,
+          {.window = window, .renderer = renderer});
+  ecs_trace("Window: %p\n", window);
+  ecs_trace("Renderer: %p\n", renderer);
+
+  // ecs_singleton_set(it->world, SDLContext,
+  //                   {.window = window, .renderer = renderer});
+}
+
+void destroy_sdl(ecs_world_t *world, void *ctx) {
+  (void)ctx;
+  ecs_trace("Destroying SDL\n");
+  const SDLContext *sdl_ctx = ecs_get(world, SDLContextInst, SDLContext);
+
+  ecs_trace("Window: %p\n", sdl_ctx->window);
+  ecs_trace("Renderer: %p\n", sdl_ctx->renderer);
+
+  SDL_DestroyWindow(sdl_ctx->window);
+  SDL_DestroyRenderer(sdl_ctx->renderer);
   SDL_Quit();
-
-  return 0;
 }
 
 void draw_player(ecs_iter_t *it) {
+  ecs_world_t *world = it->world;
   Position2 *pos = ecs_field(it, Position2, 0);
   Size2 *size = ecs_field(it, Size2, 1);
 
-  SDL_Window *window = ecs_get_ctx(it->world);
-  SDL_Surface *screenSurface = SDL_GetWindowSurface(window);
+  const SDLContext *ctx = ecs_get(world, SDLContextInst, SDLContext);
+  SDL_Renderer *renderer = ctx->renderer;
 
   // Drawing each player
   for (int i = 0; i < it->count; i++) {
@@ -109,30 +154,33 @@ void draw_player(ecs_iter_t *it) {
     r.w = size[i].x;
     r.h = size[i].y;
 
-    SDL_FillRect(screenSurface, &r,
-                 SDL_MapRGB(screenSurface->format, 0xFF, 0x00, 0x00));
+    SDL_SetRenderDrawColor(renderer, 0xFF, 0x00, 0x00, 0xFF);
+    SDL_RenderFillRect(renderer, &r);
   }
 }
 
 void move_player(ecs_iter_t *it) {
   Position2 *pos = ecs_field(it, Position2, 0);
+  // printf("Time: %f\n", it->delta_time);
   for (int i = 0; i < it->count; i++) {
-    pos[i].x += 5;
+    pos[i].x += 10 * it->delta_time;
     // pos[i].y += 10;
   }
 }
 
 void setup_draw(ecs_iter_t *it) {
-  SDL_Window *window = ecs_get_ctx(it->world);
-  SDL_Surface *screenSurface = SDL_GetWindowSurface(window);
-  SDL_FillRect(screenSurface, NULL,
-               SDL_MapRGB(screenSurface->format, 0xFF, 0xFF, 0xFF));
-  // SDL_RenderClear(ctx->screenSurface);
+  ecs_world_t *world = it->world;
+  const SDLContext *ctx = ecs_get(world, SDLContextInst, SDLContext);
+  SDL_Renderer *renderer = ctx->renderer;
+
+  SDL_SetRenderDrawColor(renderer, 173, 216, 230, 255); // light blue color
+  SDL_RenderClear(renderer);
 }
 
 void render(ecs_iter_t *it) {
-  SDL_Window *window = ecs_get_ctx(it->world);
-  // SDL_Surface* screenSurface = SDL_GetWindowSurface(window);
-  // SDL_RenderPresent(ctx->screenSurface);
-  SDL_UpdateWindowSurface(window);
+  ecs_world_t *world = it->world;
+  const SDLContext *ctx = ecs_get(world, SDLContextInst, SDLContext);
+  SDL_Renderer *renderer = ctx->renderer;
+
+  SDL_RenderPresent(renderer);
 }
