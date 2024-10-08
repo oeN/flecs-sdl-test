@@ -68,8 +68,10 @@ int run_game(SDL_Window *window) {
 
 int main(int argc, char *args[]) {
   SDL_Window *window;
+  // TODO: use the SDL_Renderer instead of SDL_Surface
   SDL_Surface *screenSurface;
 
+  // TODO: initialize the SDL stuffs in a OnStart system
   if (SDL_Init(SDL_INIT_VIDEO) < 0) {
     printf("SDL could not initialize! SDL_Error: %s\n", SDL_GetError());
     return -1;
