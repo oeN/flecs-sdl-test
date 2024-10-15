@@ -21,4 +21,4 @@ Makefile
 _deps/
 
 # Build
-HelloWorldSDL
+flecs-sdl-test

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.28)
-project(HelloWorldSDL C)
+project(flecs-sdl-test C)
 
 set(FLECS_VERSION 4.0.2)
 
