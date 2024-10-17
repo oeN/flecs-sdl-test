@@ -9,11 +9,15 @@
     cmake
     SDL2
     clang
-    libclang
+    ceedling
   ];
 
   # https://devenv.sh/languages/
-  # languages.c.enable = true;
+  languages.c.enable = true;
+
+  pre-commit.hooks = {
+    clang-tidy.enable = false;
+  };
 
   # https://devenv.sh/processes/
   # processes.cargo-watch.exec = "cargo-watch";

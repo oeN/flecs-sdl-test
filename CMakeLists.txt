@@ -18,19 +18,36 @@ FetchContent_Declare(
   GIT_TAG v${FLECS_VERSION} # Use the appropriate version tag
 )
 # Find Nuklear
-# FetchContent_Declare(
-#   nuklear
-#   GIT_REPOSITORY git@github.com:Immediate-Mode-UI/Nuklear.git
-#   GIT_TAG ${NUKLEAR_VERSION} # Use the appropriate version tag
-# )
+FetchContent_Declare(
+  nuklear
+  GIT_REPOSITORY git@github.com:Immediate-Mode-UI/Nuklear.git
+  GIT_TAG ${NUKLEAR_VERSION} # Use the appropriate version tag
+)
 FetchContent_MakeAvailable(flecs)
-# FetchContent_MakeAvailable(nuklear)
+FetchContent_MakeAvailable(nuklear)
 
-include_directories(vendor/nuklear)
+include_directories(${nuklear_SOURCE_DIR})
+include_directories(${PROJECT_SOURCE_DIR}/include)
+
+
+add_subdirectory(modules/simple_components)
+include_directories(${simple_components_SOURCE_DIR})
+
+add_subdirectory(modules/simple_systems)
+include_directories(${simple_systems_SOURCE_DIR})
 
 # Add the executable
-add_executable(${PROJECT_NAME} main.c)
+add_executable(${PROJECT_NAME} src/main.c)
+
 
 # Link the libraries
 target_link_libraries(${PROJECT_NAME} ${SDL2_LIBRARIES})
 target_link_libraries(${PROJECT_NAME} flecs_static)
+target_link_libraries(${PROJECT_NAME} simple_systems)
+target_link_libraries(${PROJECT_NAME} simple_components)
+
+get_cmake_property(_variableNames VARIABLES)
+list (SORT _variableNames)
+foreach (_variableName ${_variableNames})
+    message(STATUS "${_variableName}=${${_variableName}}")
+endforeach()

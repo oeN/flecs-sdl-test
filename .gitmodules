@@ -1,3 +1,0 @@
-[submodule "vendor/nuklear"]
-	path = vendor/nuklear
-	url = git@github.com:Immediate-Mode-UI/Nuklear.git

@@ -1,7 +1,3 @@
-#include <SDL2/SDL.h>
-#include <flecs.h>
-#include <stdio.h>
-
 #define NK_INCLUDE_FIXED_TYPES
 #define NK_INCLUDE_STANDARD_IO
 #define NK_INCLUDE_STANDARD_VARARGS
@@ -13,16 +9,16 @@
 #define NK_SDL_RENDERER_IMPLEMENTATION
 #include "nuklear.h"
 
+#include <stdio.h>
+
 #define NK_SDL_RENDERER_SDL_H <SDL2/SDL.h>
 #include "nuklear_sdl_renderer.h"
 
+#include "simple_components.h"
+#include "simple_systems.h"
+
 #define SCREEN_WIDTH 1280
 #define SCREEN_HEIGHT 720
-
-typedef struct Vector2 {
-  float x;
-  float y;
-} Position2, Size2, Velocity;
 
 typedef struct SDLContext {
   SDL_Window *window;
@@ -31,9 +27,8 @@ typedef struct SDLContext {
 } SDLContext;
 
 ecs_world_t *world = NULL;
+float font_scale = 1;
 
-// render agnostic functions
-void move_player(ecs_iter_t *it);
 // dependent on SDL
 void draw_player(ecs_iter_t *it);
 void clear_screen(ecs_iter_t *it);
@@ -42,29 +37,15 @@ void setup_sdl(ecs_iter_t *it);
 void destroy_sdl(ecs_world_t *wold, void *ctx);
 void setup_nuklear(ecs_iter_t *it);
 void draw_gui(ecs_iter_t *it);
+void handle_input(ecs_iter_t *it);
 
 ECS_COMPONENT_DECLARE(SDLContext);
 #define SDLContextInst (ecs_id(SDLContext))
 
-void main_loop() {
-  int quit = 0;
-  SDL_Event e;
-
-  while (quit == 0) {
-    ecs_progress(world, 0);
-    while (SDL_PollEvent(&e)) {
-      switch (e.type) {
-      case SDL_QUIT:
-        quit = 1;
-        break;
-      }
-    }
-  }
-}
-
-int run_game() {
+void setup_ecs() {
   // world = ecs_init();
   ecs_log_set_level(0);
+  ECS_IMPORT(world, SimpleSystems);
 
   // Set ecs phases to accommodate SDL Draw Functions
   ecs_entity_t AfterSdlSetup = ecs_new_w_id(world, EcsPhase);
@@ -78,43 +59,41 @@ int run_game() {
   ecs_add_pair(world, AfterDraw, EcsDependsOn, OnDraw);
 
   ECS_COMPONENT_DEFINE(world, SDLContext);
-  ECS_COMPONENT(world, Position2);
-  ECS_COMPONENT(world, Size2);
-  ECS_COMPONENT(world, Velocity);
 
   ECS_SYSTEM(world, setup_sdl, EcsOnStart, [out] SDLContext());
   ECS_SYSTEM(world, setup_nuklear,
              AfterSdlSetup, [in] SDLContext(), [out] SDLContext());
-  ECS_SYSTEM(world, move_player, EcsOnUpdate, Position2, Velocity);
+  ECS_SYSTEM(world, handle_input, EcsOnUpdate, [in] SDLContext());
   ECS_SYSTEM(world, clear_screen, BeforeDraw, [in] SDLContext());
-  ECS_SYSTEM(world, draw_player, OnDraw, Position2, Size2, [in] SDLContext());
+  ECS_SYSTEM(world, draw_player, OnDraw, simple.components.Position2,
+             simple.components.Size2, [in] SDLContext());
   ECS_SYSTEM(world, draw_gui, OnDraw, [in] SDLContext());
   ECS_SYSTEM(world, render, AfterDraw, [in] SDLContext());
 
-  ECS_ENTITY(world, Player, 0);
-  ecs_set(world, Player, Position2, {100, 100});
-  ecs_set(world, Player, Size2, {50, 50});
-  ecs_set(world, Player, Velocity, {200, 0});
-
-  ecs_trace("Running Game\n");
-  main_loop();
-  ecs_trace("Game Over\n");
-
-  ecs_atfini(world, destroy_sdl, NULL);
-
-  return ecs_fini(world);
+  ecs_entity_t e = ecs_insert(world, ecs_value(Position2, {100, 100}));
+  ecs_set(world, e, Size2, {50, 50});
+  ecs_set(world, e, Velocity, {200, 0});
 }
 
 int main(int argc, char *argv[]) {
   world = ecs_init_w_args(argc, argv);
   ECS_IMPORT(world, FlecsStats);
 
-  ecs_singleton_set(world, EcsRest, {0});
-  ecs_set_target_fps(world, 60);
+  setup_ecs();
 
-  run_game();
+  ecs_atfini(world, destroy_sdl, NULL);
+  return ecs_app_run(world, &(ecs_app_desc_t){
+                                // Optional, gather statistics for explorer
+                                .enable_stats = 1,
+                                .enable_rest = 1,
+                            });
 
-  return 0;
+  // ecs_singleton_set(world, EcsRest, {0});
+  // ecs_set_target_fps(world, 60);
+
+  // return run_game();
+
+  // return 0;
 }
 
 void setup_sdl(ecs_iter_t *it) {
@@ -152,18 +131,18 @@ void setup_sdl(ecs_iter_t *it) {
 
   // TODO: Understand this code and use if necessary (it seems), copied from
   // https://github.com/Immediate-Mode-UI/Nuklear/blob/master/demo/sdl_renderer/main.c
-  // /* scale the renderer output for High-DPI displays */
-  // {
-  //   int render_w, render_h;
-  //   int window_w, window_h;
-  //   float scale_x, scale_y;
-  //   SDL_GetRendererOutputSize(renderer, &render_w, &render_h);
-  //   SDL_GetWindowSize(win, &window_w, &window_h);
-  //   scale_x = (float)(render_w) / (float)(window_w);
-  //   scale_y = (float)(render_h) / (float)(window_h);
-  //   SDL_RenderSetScale(renderer, scale_x, scale_y);
-  //   font_scale = scale_y;
-  // }
+  /* scale the renderer output for High-DPI displays */
+  {
+    int render_w, render_h;
+    int window_w, window_h;
+    float scale_x, scale_y;
+    SDL_GetRendererOutputSize(renderer, &render_w, &render_h);
+    SDL_GetWindowSize(window, &window_w, &window_h);
+    scale_x = (float)(render_w) / (float)(window_w);
+    scale_y = (float)(render_h) / (float)(window_h);
+    SDL_RenderSetScale(renderer, scale_x, scale_y);
+    font_scale = scale_y;
+  }
 }
 
 void setup_nuklear(ecs_iter_t *it) {
@@ -173,7 +152,6 @@ void setup_nuklear(ecs_iter_t *it) {
   ecs_trace("SDL Context: %p\n", sdl_ctx);
   SDL_Window *win = sdl_ctx->window;
   SDL_Renderer *renderer = sdl_ctx->renderer;
-  float font_scale = 1;
   struct nk_context *ctx;
 
   /* GUI */
@@ -212,19 +190,6 @@ void setup_nuklear(ecs_iter_t *it) {
     /*nk_style_load_all_cursors(ctx, atlas->cursors);*/
     nk_style_set_font(ctx, &font->handle);
   }
-}
-
-void destroy_sdl(ecs_world_t *world, void *ctx) {
-  ecs_trace("Destroying SDL\n");
-  const SDLContext *sdl_ctx = ecs_get(world, SDLContextInst, SDLContext);
-
-  ecs_trace("Window: %p\n", sdl_ctx->window);
-  ecs_trace("Renderer: %p\n", sdl_ctx->renderer);
-
-  nk_sdl_shutdown();
-  SDL_DestroyRenderer(sdl_ctx->renderer);
-  SDL_DestroyWindow(sdl_ctx->window);
-  SDL_Quit();
 }
 
 void draw_player(ecs_iter_t *it) {
@@ -294,16 +259,6 @@ void draw_gui(ecs_iter_t *it) {
   nk_end(ctx);
 }
 
-void move_player(ecs_iter_t *it) {
-  Position2 *pos = ecs_field(it, Position2, 0);
-  Velocity *vel = ecs_field(it, Velocity, 1);
-
-  for (int i = 0; i < it->count; i++) {
-    pos[i].x += vel[i].x * it->delta_time;
-    pos[i].y += vel[i].y * it->delta_time;
-  }
-}
-
 void clear_screen(ecs_iter_t *it) {
   ecs_world_t *world = it->world;
   const SDLContext *ctx = ecs_get(world, SDLContextInst, SDLContext);
@@ -322,4 +277,43 @@ void render(ecs_iter_t *it) {
   SDL_Renderer *renderer = ctx->renderer;
 
   SDL_RenderPresent(renderer);
+}
+
+void handle_input(ecs_iter_t *it) {
+  ecs_world_t *world = it->world;
+  const SDLContext *ctx = ecs_get(world, SDLContextInst, SDLContext);
+  struct nk_context *nkctx = ctx->nkctx;
+
+  SDL_Event e;
+  nk_input_begin(nkctx);
+  // since this whole method is called every frame we don't need to
+  while (SDL_PollEvent(&e)) {
+    // SDL_PollEvent(&e);
+    switch (e.type) {
+    case SDL_QUIT:
+      // ecs_trace("Quitting\n");
+      // FIXME: it works with ecs_app_run but it doesn't call the destroy_sdl
+      // function registered with ecs_atfini
+      ecs_quit(world);
+      // ecs_fini(world);
+      break;
+    default:
+      nk_sdl_handle_event(&e);
+    }
+  }
+  nk_sdl_handle_grab();
+  nk_input_end(nkctx);
+}
+
+void destroy_sdl(ecs_world_t *world, void *ctx) {
+  ecs_trace("Destroying SDL\n");
+  const SDLContext *sdl_ctx = ecs_get(world, SDLContextInst, SDLContext);
+
+  ecs_trace("Window: %p\n", sdl_ctx->window);
+  ecs_trace("Renderer: %p\n", sdl_ctx->renderer);
+
+  nk_sdl_shutdown();
+  SDL_DestroyRenderer(sdl_ctx->renderer);
+  SDL_DestroyWindow(sdl_ctx->window);
+  SDL_Quit();
 }
