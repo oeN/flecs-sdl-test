@@ -1,0 +1,7 @@
+#ifndef GAME_COMMON_H
+#define GAME_COMMON_H
+
+#define SCREEN_WIDTH 1280
+#define SCREEN_HEIGHT 720
+
+#endif // GAME_COMMON_H

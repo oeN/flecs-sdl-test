@@ -7,6 +7,8 @@ set(NUKLEAR_VERSION 4.12.0)
 # Set the C standard
 set(CMAKE_C_STANDARD 99)
 
+# set(CMAKE_C_CLANG_TIDY clang-tidy)
+
 # Find SDL2
 find_package(SDL2 REQUIRED)
 
@@ -37,7 +39,8 @@ add_subdirectory(modules/simple_systems)
 include_directories(${simple_systems_SOURCE_DIR})
 
 # Add the executable
-add_executable(${PROJECT_NAME} src/main.c)
+FILE(GLOB C_SOURCES src/*.c)
+add_executable(${PROJECT_NAME} ${C_SOURCES})
 
 
 # Link the libraries

@@ -14,38 +14,27 @@
 #define NK_SDL_RENDERER_SDL_H <SDL2/SDL.h>
 #include "nuklear_sdl_renderer.h"
 
+#include "game_common.h"
+#include "sdl_components.h"
+#include "sdl_systems.h"
 #include "simple_components.h"
 #include "simple_systems.h"
-
-#define SCREEN_WIDTH 1280
-#define SCREEN_HEIGHT 720
-
-typedef struct SDLContext {
-  SDL_Window *window;
-  SDL_Renderer *renderer;
-  struct nk_context *nkctx;
-} SDLContext;
 
 ecs_world_t *world = NULL;
 float font_scale = 1;
 
 // dependent on SDL
 void draw_player(ecs_iter_t *it);
-void clear_screen(ecs_iter_t *it);
-void render(ecs_iter_t *it);
-void setup_sdl(ecs_iter_t *it);
-void destroy_sdl(ecs_world_t *wold, void *ctx);
 void setup_nuklear(ecs_iter_t *it);
 void draw_gui(ecs_iter_t *it);
 void handle_input(ecs_iter_t *it);
-
-ECS_COMPONENT_DECLARE(SDLContext);
-#define SDLContextInst (ecs_id(SDLContext))
 
 void setup_ecs() {
   // world = ecs_init();
   ecs_log_set_level(0);
   ECS_IMPORT(world, SimpleSystems);
+
+  ECS_COMPONENT_DEFINE(world, SDLContext);
 
   // Set ecs phases to accommodate SDL Draw Functions
   ecs_entity_t AfterSdlSetup = ecs_new_w_id(world, EcsPhase);
@@ -58,16 +47,13 @@ void setup_ecs() {
   ecs_add_pair(world, OnDraw, EcsDependsOn, BeforeDraw);
   ecs_add_pair(world, AfterDraw, EcsDependsOn, OnDraw);
 
-  ECS_COMPONENT_DEFINE(world, SDLContext);
-
   ECS_SYSTEM(world, setup_sdl, EcsOnStart, [out] SDLContext());
-  ECS_SYSTEM(world, setup_nuklear,
-             AfterSdlSetup, [in] SDLContext(), [out] SDLContext());
+  // ECS_SYSTEM(world, setup_nuklear, AfterSdlSetup, [inout] SDLContext());
   ECS_SYSTEM(world, handle_input, EcsOnUpdate, [in] SDLContext());
   ECS_SYSTEM(world, clear_screen, BeforeDraw, [in] SDLContext());
   ECS_SYSTEM(world, draw_player, OnDraw, simple.components.Position2,
              simple.components.Size2, [in] SDLContext());
-  ECS_SYSTEM(world, draw_gui, OnDraw, [in] SDLContext());
+  // ECS_SYSTEM(world, draw_gui, OnDraw, [in] SDLContext());
   ECS_SYSTEM(world, render, AfterDraw, [in] SDLContext());
 
   ecs_entity_t e = ecs_insert(world, ecs_value(Position2, {100, 100}));
@@ -87,68 +73,13 @@ int main(int argc, char *argv[]) {
                                 .enable_stats = 1,
                                 .enable_rest = 1,
                             });
-
-  // ecs_singleton_set(world, EcsRest, {0});
-  // ecs_set_target_fps(world, 60);
-
-  // return run_game();
-
-  // return 0;
-}
-
-void setup_sdl(ecs_iter_t *it) {
-  ecs_trace("Setting up SDL");
-
-  ecs_world_t *world = it->world;
-  SDL_Window *window;
-  int flags = 0;
-
-  if (SDL_Init(SDL_INIT_VIDEO) < 0) {
-    ecs_err("SDL could not initialize! SDL_Error: %s\n", SDL_GetError());
-  }
-
-  window = SDL_CreateWindow("Flecs Demo", SDL_WINDOWPOS_UNDEFINED,
-                            SDL_WINDOWPOS_UNDEFINED, SCREEN_WIDTH,
-                            SCREEN_HEIGHT, SDL_WINDOW_SHOWN);
-  if (window == NULL) {
-    ecs_err("Window could not be created! SDL_Error: %s\n", SDL_GetError());
-  }
-
-  flags |= SDL_RENDERER_ACCELERATED;
-  flags |= SDL_RENDERER_PRESENTVSYNC;
-
-  SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, flags);
-  if (renderer == NULL) {
-    ecs_err("Renderer could not be created! SDL_Error: %s\n", SDL_GetError());
-  }
-
-  ecs_trace("Context ready");
-  ecs_set(world, SDLContextInst, SDLContext,
-          {.window = window, .renderer = renderer});
-  ecs_trace("Window: %p\n", window);
-  ecs_trace("Renderer: %p\n", renderer);
-  ecs_trace("SDL Context: %p\n", ecs_get(world, SDLContextInst, SDLContext));
-
-  // TODO: Understand this code and use if necessary (it seems), copied from
-  // https://github.com/Immediate-Mode-UI/Nuklear/blob/master/demo/sdl_renderer/main.c
-  /* scale the renderer output for High-DPI displays */
-  {
-    int render_w, render_h;
-    int window_w, window_h;
-    float scale_x, scale_y;
-    SDL_GetRendererOutputSize(renderer, &render_w, &render_h);
-    SDL_GetWindowSize(window, &window_w, &window_h);
-    scale_x = (float)(render_w) / (float)(window_w);
-    scale_y = (float)(render_h) / (float)(window_h);
-    SDL_RenderSetScale(renderer, scale_x, scale_y);
-    font_scale = scale_y;
-  }
 }
 
 void setup_nuklear(ecs_iter_t *it) {
   ecs_trace("Setting up Nuklear\n");
   ecs_world_t *world = it->world;
   const SDLContext *sdl_ctx = ecs_get(world, SDLContextInst, SDLContext);
+
   ecs_trace("SDL Context: %p\n", sdl_ctx);
   SDL_Window *win = sdl_ctx->window;
   SDL_Renderer *renderer = sdl_ctx->renderer;
@@ -218,10 +149,8 @@ void draw_gui(ecs_iter_t *it) {
   ecs_world_t *world = it->world;
   const SDLContext *sdlctx = ecs_get(world, SDLContextInst, SDLContext);
   struct nk_context *ctx = sdlctx->nkctx;
-
   struct nk_colorf bg;
 
-  bg.r = 0.10f, bg.g = 0.18f, bg.b = 0.24f, bg.a = 1.0f;
   /* GUI */
   if (nk_begin(ctx, "Demo", nk_rect(50, 50, 230, 250),
                NK_WINDOW_BORDER | NK_WINDOW_MOVABLE | NK_WINDOW_SCALABLE |
@@ -259,33 +188,13 @@ void draw_gui(ecs_iter_t *it) {
   nk_end(ctx);
 }
 
-void clear_screen(ecs_iter_t *it) {
-  ecs_world_t *world = it->world;
-  const SDLContext *ctx = ecs_get(world, SDLContextInst, SDLContext);
-  SDL_Renderer *renderer = ctx->renderer;
-
-  SDL_SetRenderDrawColor(renderer, 173, 216, 230, 255); // light blue color
-  SDL_RenderClear(renderer);
-
-  // TODO: move me in another system?
-  nk_sdl_render(NK_ANTI_ALIASING_ON);
-}
-
-void render(ecs_iter_t *it) {
-  ecs_world_t *world = it->world;
-  const SDLContext *ctx = ecs_get(world, SDLContextInst, SDLContext);
-  SDL_Renderer *renderer = ctx->renderer;
-
-  SDL_RenderPresent(renderer);
-}
-
 void handle_input(ecs_iter_t *it) {
   ecs_world_t *world = it->world;
   const SDLContext *ctx = ecs_get(world, SDLContextInst, SDLContext);
-  struct nk_context *nkctx = ctx->nkctx;
+  // struct nk_context *nkctx = ctx->nkctx;
 
   SDL_Event e;
-  nk_input_begin(nkctx);
+  // nk_input_begin(nkctx);
   // since this whole method is called every frame we don't need to
   while (SDL_PollEvent(&e)) {
     // SDL_PollEvent(&e);
@@ -297,23 +206,10 @@ void handle_input(ecs_iter_t *it) {
       ecs_quit(world);
       // ecs_fini(world);
       break;
-    default:
-      nk_sdl_handle_event(&e);
+      // default:
+      // nk_sdl_handle_event(&e);
     }
   }
-  nk_sdl_handle_grab();
-  nk_input_end(nkctx);
-}
-
-void destroy_sdl(ecs_world_t *world, void *ctx) {
-  ecs_trace("Destroying SDL\n");
-  const SDLContext *sdl_ctx = ecs_get(world, SDLContextInst, SDLContext);
-
-  ecs_trace("Window: %p\n", sdl_ctx->window);
-  ecs_trace("Renderer: %p\n", sdl_ctx->renderer);
-
-  nk_sdl_shutdown();
-  SDL_DestroyRenderer(sdl_ctx->renderer);
-  SDL_DestroyWindow(sdl_ctx->window);
-  SDL_Quit();
+  // nk_sdl_handle_grab();
+  // nk_input_end(nkctx);
 }
